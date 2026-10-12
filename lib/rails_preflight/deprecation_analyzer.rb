@@ -4,6 +4,8 @@ module RailsPreflight
     DATA_PATH = File.expand_path('../../database/deprecations.yml', __dir__)
     SCAN_DIRS = %w[app config db lib test spec].freeze
     SCAN_EXTS = %w[.rb .erb .rake .haml .slim].freeze
+    # Packwerk packs (`packs/<name>/app`, `packs/<name>/spec`, ...) hold app code outside the root's SCAN_DIRS.
+    PACKS_DIR = 'packs'.freeze
     # Lines that never run, by file type: [line comment, silent comment]. A silent comment hides the lines indented
     # under it too (HAML `-#`, Slim `/`); an HTML comment (HAML `/`, Slim `/!` or `/[if IE]`) is text, but the lines
     # under it still render and run. In templates `#main` is an element id, not a comment.
@@ -87,7 +89,8 @@ module RailsPreflight
       found = []
       compiled = rules.map { |rule| [Regexp.new(rule['pattern']), rule] }
 
-      files = Dir.glob(File.join(@root_path, "{#{SCAN_DIRS.join(',')}}/**/*")).select { |file| SCAN_EXTS.include?(File.extname(file)) }.to_h { |file| [file, 'code'] }
+      code_globs = ["", "#{PACKS_DIR}/*/"].map { |prefix| File.join(@root_path, "#{prefix}{#{SCAN_DIRS.join(',')}}/**/*") }
+      files = Dir.glob(code_globs).select { |file| SCAN_EXTS.include?(File.extname(file)) }.to_h { |file| [file, 'code'] }
       FILE_GLOBS.each do |kind, globs|
         Dir.glob(globs.map { |glob| File.join(@root_path, glob) }).each { |file| files[file] ||= kind }
       end
@@ -96,9 +99,11 @@ module RailsPreflight
         next if File.directory?(file)
 
         relative_path = Pathname.new(file).relative_path_from(Pathname.new(@root_path)).to_s
-        test = relative_path.start_with?('test/', 'spec/')
+        # A pack is laid out like the app root, so rules see `packs/billing/app/models/x.rb` as `app/models/x.rb`.
+        app_path = relative_path.sub(%r{\A#{PACKS_DIR}/[^/]+/}, '')
+        test = app_path.start_with?('test/', 'spec/')
 
-        under = ->(paths) { paths.any? { |path| relative_path == path || relative_path.start_with?("#{path}/") } }
+        under = ->(paths) { paths.any? { |path| app_path == path || app_path.start_with?("#{path}/") } }
         # A rule with `paths:` only applies under those directories or to those files.
         applicable = compiled.select do |_regex, rule|
           rule.fetch('files', ['code']).include?(kind) && (rule['paths'].nil? || under.(rule['paths']))
