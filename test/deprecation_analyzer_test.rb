@@ -153,6 +153,16 @@ class DeprecationAnalyzerTest < Minitest::Test
                  check[:files].map { |d| d[:file] }.sort
   end
 
+  def test_skips_binary_files
+    FileUtils.mkdir_p(File.join(@tmp_dir, "bin"))
+    File.binwrite(File.join(@tmp_dir, "bin", "cli"), "\xCF\xFA\xED\xFE\x00rake db:structure:dump\n".b)
+    write_app_file("bin/setup", "rake db:structure:dump # café")
+
+    files = RailsPreflight::DeprecationAnalyzer.new(@tmp_dir).run[:checks].flat_map { |c| (c[:files] || []).map { |d| d[:file] } }
+
+    assert_equal ["bin/setup"], files
+  end
+
   def test_path_scoped_rule_skips_directories_it_does_not_apply_to
     FileUtils.mkdir_p(File.join(@tmp_dir, "config"))
     File.write(File.join(@tmp_dir, "config", "routes.rb"), "get :show, on: :member\n")
