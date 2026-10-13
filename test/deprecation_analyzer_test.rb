@@ -169,6 +169,21 @@ class DeprecationAnalyzerTest < Minitest::Test
     $VERBOSE = verbose
   end
 
+  def test_scans_packwerk_packs_like_the_app_root
+    write_app_file("packs/billing/app/models/invoice.rb", "  deprecated_method")
+    write_app_file("packs/billing/spec/models/invoice_spec.rb", "  deprecated_method")
+    write_app_file("packs/billing/app/helpers/invoices_helper.rb", "    errors.each do |name, message|")
+    write_app_file("packs/billing/lib/invoice_form.rb", "    errors.each do |attribute, message|")
+
+    checks = RailsPreflight::DeprecationAnalyzer.new(@tmp_dir, File.join(@db_dir, "deprecations.yml")).run[:checks]
+    hits = checks.first[:files].map { |d| [d[:file], d[:test]] }.sort
+    assert_equal [["packs/billing/app/models/invoice.rb", false], ["packs/billing/spec/models/invoice_spec.rb", true]], hits
+
+    shipped = RailsPreflight::DeprecationAnalyzer.new(@tmp_dir).run[:checks]
+    errors = shipped.find { |c| c[:message].start_with?("Enumerating 'ActiveModel::Errors'") }
+    assert_equal ["packs/billing/lib/invoice_form.rb"], errors[:files].map { |d| d[:file] }
+  end
+
   def test_path_scoped_rule_skips_directories_it_does_not_apply_to
     FileUtils.mkdir_p(File.join(@tmp_dir, "config"))
     File.write(File.join(@tmp_dir, "config", "routes.rb"), "get :show, on: :member\n")
