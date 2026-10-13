@@ -158,9 +158,15 @@ class DeprecationAnalyzerTest < Minitest::Test
     File.binwrite(File.join(@tmp_dir, "bin", "cli"), "\xCF\xFA\xED\xFE\x00rake db:structure:dump\n".b)
     write_app_file("bin/setup", "rake db:structure:dump # café")
 
+    # LANG=C, common in Docker and CI: text is still read as UTF-8, so bin/setup is scanned.
+    verbose, $VERBOSE = $VERBOSE, nil
+    external, Encoding.default_external = Encoding.default_external, Encoding::US_ASCII
     files = RailsPreflight::DeprecationAnalyzer.new(@tmp_dir).run[:checks].flat_map { |c| (c[:files] || []).map { |d| d[:file] } }
 
     assert_equal ["bin/setup"], files
+  ensure
+    Encoding.default_external = external if external
+    $VERBOSE = verbose
   end
 
   def test_path_scoped_rule_skips_directories_it_does_not_apply_to
